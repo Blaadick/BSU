@@ -1,0 +1,39 @@
+name: Build
+
+on:
+    push:
+        branches: ['**']
+    pull_request:
+    workflow_call:
+
+jobs:
+    linux-x86_64:
+        name: linux-x86_64
+        runs-on: ubuntu-latest
+        container: archlinux:base-devel
+        steps:
+        -   name: Install dependencies
+            run: pacman -Syu --noconfirm --needed git cmake ninja libsecret
+
+        -   uses: actions/checkout@v7.0.1
+
+        -   name: Build
+            run: |
+                cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+                cmake --build build --parallel
+
+    windows-x86_64:
+        name: windows-x86_64
+        runs-on: ubuntu-latest
+        container: archlinux:base-devel
+        steps:
+        -   name: Install dependencies
+            run: pacman -Syu --noconfirm --needed git cmake ninja mingw-w64-gcc
+
+        -   uses: actions/checkout@v7.0.1
+
+        -   name: Build
+            run: |
+                cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++
+                cmake --build build --parallel
+
