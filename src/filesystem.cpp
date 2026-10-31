@@ -3,6 +3,7 @@ module;
 #ifdef __linux__
 #include <cerrno>
 #include <fcntl.h>
+#include <time.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #elif _WIN32
@@ -51,6 +52,7 @@ namespace {
             }
 
             if(!isOwnedDir(dirPath)) {
+                errno = EPERM;
                 return false;
             }
         }
@@ -119,106 +121,178 @@ namespace {
         return result;
     }
 }
+#endif
 
 auto bsu::filesystem::move_to_trash(const std::filesystem::path& path) -> bool {
-    const auto absolutePath = std::filesystem::absolute(path).lexically_normal();
-    const auto pathDevice = deviceOf(absolutePath);
-    if(!pathDevice.has_value()) {
-        return false;
-    }
-
-    const auto homeTrashDirPath = homeTrashDir();
     std::error_code errorCode;
-    std::filesystem::create_directories(homeTrashDirPath.parent_path(), errorCode);
-
-    std::filesystem::path trashDirPath;
-    std::filesystem::path trashInfoPath;
-
-    if(deviceOf(homeTrashDirPath.parent_path()) == pathDevice && createTrashDir(homeTrashDirPath)) {
-        trashDirPath = homeTrashDirPath;
-        trashInfoPath = absolutePath;
-    } else {
-        const auto topDirPath = mountPointOf(absolutePath, *pathDevice);
-        const auto topDirTrashDirPath = topDirTrashDir(topDirPath);
-        if(!topDirTrashDirPath.has_value()) {
-            return false;
-        }
-
-        trashDirPath = *topDirTrashDirPath;
-        trashInfoPath = absolutePath.lexically_relative(topDirPath);
-    }
-
-    const auto deletionDate = std::chrono::floor<std::chrono::seconds>(
-        std::chrono::zoned_time(std::chrono::current_zone(), std::chrono::system_clock::now()).get_local_time()
-    );
-    const auto trashInfo = std::format(
-        "[Trash Info]\nPath={}\nDeletionDate={:%FT%T}\n",
-        encodeTrashInfoPath(trashInfoPath),
-        deletionDate
-    );
-
-    const auto baseName = absolutePath.filename().string();
-
-    for(int i = 1;; ++i) {
-        const auto trashName = i == 1 ? baseName : std::format("{}.{}", baseName, i);
-        const auto trashedFilePath = trashDirPath / "files" / trashName;
-        const auto infoFilePath = trashDirPath / "info" / (trashName + ".trashinfo");
-
-        if(std::filesystem::exists(std::filesystem::symlink_status(trashedFilePath, errorCode))) {
-            continue;
-        }
-
-        const auto infoFile = open(infoFilePath.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
-        if(infoFile < 0) {
-            if(errno == EEXIST) {
-                continue;
-            }
-
-            return false;
-        }
-
-        const auto written = write(infoFile, trashInfo.data(), trashInfo.size());
-        const auto closed = close(infoFile) == 0;
-
-        if(written != static_cast<ssize_t>(trashInfo.size()) || !closed || std::rename(absolutePath.c_str(), trashedFilePath.c_str()) != 0) {
-            unlink(infoFilePath.c_str());
-            return false;
-        }
-
-        return true;
-    }
-}
-#elif _WIN32
-auto bsu::filesystem::move_to_trash(const std::filesystem::path& path) -> bool {
-    const auto comInitResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-
-    IFileOperation* fileOperation = nullptr;
-    IShellItem* item = nullptr;
-    auto result = false;
-
-    if(
-        SUCCEEDED(CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&fileOperation)))
-        && SUCCEEDED(fileOperation->SetOperationFlags(FOF_ALLOWUNDO | FOFX_RECYCLEONDELETE | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT))
-        && SUCCEEDED(SHCreateItemFromParsingName(std::filesystem::absolute(path).lexically_normal().c_str(), nullptr, IID_PPV_ARGS(&item)))
-        && SUCCEEDED(fileOperation->DeleteItem(item, nullptr))
-        && SUCCEEDED(fileOperation->PerformOperations())
-    ) {
-        BOOL aborted = FALSE;
-        result = SUCCEEDED(fileOperation->GetAnyOperationsAborted(&aborted)) && !aborted;
-    }
-
-    if(item) {
-        item->Release();
-    }
-
-    if(fileOperation) {
-        fileOperation->Release();
-    }
-
-    if(SUCCEEDED(comInitResult)) {
-        CoUninitialize();
+    const auto result = move_to_trash(path, errorCode);
+    if(errorCode) {
+        throw std::filesystem::filesystem_error("cannot move to trash", path, errorCode);
     }
 
     return result;
 }
-#endif
+
+auto bsu::filesystem::move_to_trash(const std::filesystem::path& path, std::error_code& errorCode) noexcept -> bool {
+    const auto status = std::filesystem::symlink_status(path, errorCode);
+    if(std::filesystem::exists(status)) {
+        try {
+            #ifdef __linux__
+            const auto absolutePath = std::filesystem::absolute(path, errorCode).lexically_normal();
+            if(errorCode) {
+                return false;
+            }
+
+            const auto pathDevice = deviceOf(absolutePath);
+            if(!pathDevice.has_value()) {
+                errorCode.assign(errno, std::generic_category());
+                return false;
+            }
+
+            const auto homeTrashDirPath = homeTrashDir();
+            std::filesystem::create_directories(homeTrashDirPath.parent_path(), errorCode);
+
+            std::filesystem::path trashDirPath;
+            std::filesystem::path trashInfoPath;
+
+            if(deviceOf(homeTrashDirPath.parent_path()) == pathDevice && createTrashDir(homeTrashDirPath)) {
+                trashDirPath = homeTrashDirPath;
+                trashInfoPath = absolutePath;
+            } else {
+                const auto topDirPath = mountPointOf(absolutePath, *pathDevice);
+                const auto topDirTrashDirPath = topDirTrashDir(topDirPath);
+                if(!topDirTrashDirPath.has_value()) {
+                    errorCode.assign(errno, std::generic_category());
+                    return false;
+                }
+
+                trashDirPath = *topDirTrashDirPath;
+                trashInfoPath = absolutePath.lexically_relative(topDirPath);
+            }
+
+            const auto now = std::time(nullptr);
+            std::tm localNow{};
+            if(localtime_r(&now, &localNow) == nullptr) {
+                errorCode.assign(errno, std::generic_category());
+                return false;
+            }
+
+            std::array<char, 20> deletionDate{};
+            std::strftime(deletionDate.data(), deletionDate.size(), "%FT%T", &localNow);
+
+            const auto trashInfo = std::format(
+                "[Trash Info]\nPath={}\nDeletionDate={}\n",
+                encodeTrashInfoPath(trashInfoPath),
+                deletionDate.data()
+            );
+
+            const auto baseName = absolutePath.filename().string();
+
+            for(int i = 1;; ++i) {
+                const auto trashName = i == 1 ? baseName : std::format("{}.{}", baseName, i);
+                const auto trashedFilePath = trashDirPath / "files" / trashName;
+                const auto infoFilePath = trashDirPath / "info" / (trashName + ".trashinfo");
+
+                if(std::filesystem::exists(std::filesystem::symlink_status(trashedFilePath, errorCode))) {
+                    continue;
+                }
+
+                const auto infoFile = open(infoFilePath.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
+                if(infoFile < 0) {
+                    if(errno == EEXIST) {
+                        continue;
+                    }
+
+                    errorCode.assign(errno, std::generic_category());
+                    return false;
+                }
+
+                const auto written = write(infoFile, trashInfo.data(), trashInfo.size());
+                if(written != static_cast<ssize_t>(trashInfo.size())) {
+                    if(written < 0) {
+                        errorCode.assign(errno, std::generic_category());
+                    } else {
+                        errorCode = std::make_error_code(std::errc::io_error);
+                    }
+
+                    close(infoFile);
+                    unlink(infoFilePath.c_str());
+                    return false;
+                }
+
+                if(close(infoFile) != 0 || std::rename(absolutePath.c_str(), trashedFilePath.c_str()) != 0) {
+                    errorCode.assign(errno, std::generic_category());
+                    unlink(infoFilePath.c_str());
+                    return false;
+                }
+
+                errorCode.clear();
+                return true;
+            }
+            #elif _WIN32
+            const auto absolutePath = std::filesystem::absolute(path, errorCode).lexically_normal();
+            if(errorCode) {
+                return false;
+            }
+
+            const auto comInitResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+
+            IFileOperation* fileOperation = nullptr;
+            IShellItem* item = nullptr;
+            BOOL aborted = FALSE;
+
+            auto result = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&fileOperation));
+            if(SUCCEEDED(result)) {
+                result = fileOperation->SetOperationFlags(FOF_ALLOWUNDO | FOFX_RECYCLEONDELETE | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT);
+            }
+
+            if(SUCCEEDED(result)) {
+                result = SHCreateItemFromParsingName(absolutePath.c_str(), nullptr, IID_PPV_ARGS(&item));
+            }
+
+            if(SUCCEEDED(result)) {
+                result = fileOperation->DeleteItem(item, nullptr);
+            }
+
+            if(SUCCEEDED(result)) {
+                result = fileOperation->PerformOperations();
+            }
+
+            if(SUCCEEDED(result)) {
+                result = fileOperation->GetAnyOperationsAborted(&aborted);
+            }
+
+            if(item) {
+                item->Release();
+            }
+
+            if(fileOperation) {
+                fileOperation->Release();
+            }
+
+            if(SUCCEEDED(comInitResult)) {
+                CoUninitialize();
+            }
+
+            if(FAILED(result)) {
+                errorCode.assign(static_cast<int>(result), std::system_category());
+                return false;
+            }
+
+            if(aborted) {
+                errorCode = std::make_error_code(std::errc::operation_canceled);
+                return false;
+            }
+
+            errorCode.clear();
+            return true;
+            #endif
+        } catch(const std::bad_alloc&) {
+            errorCode = std::make_error_code(std::errc::not_enough_memory);
+        }
+    } else if(std::filesystem::status_known(status)) {
+        errorCode.clear();
+    }
+
+    return false;
+}
