@@ -3,7 +3,7 @@ set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "f35a9ac6-8463-4d38-8eec-5d6008153e7d")
 
 project(BSU
     DESCRIPTION "Blaad's System Utilities"
-    VERSION 0.1.0
+    VERSION 0.1.1
     LANGUAGES CXX
 )
 
