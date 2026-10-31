@@ -7,6 +7,7 @@ project(BSU
     LANGUAGES CXX
 )
 
+set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_MODULE_STD ON)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
@@ -24,6 +25,7 @@ set_target_properties(bsu PROPERTIES
 
 target_sources(bsu
     PUBLIC FILE_SET CXX_MODULES BASE_DIRS include FILES
+    include/bsu.cppm
     include/filesystem.cppm
     include/secrets.cppm
     PRIVATE

@@ -2,7 +2,7 @@ module;
 
 #include <bsu.hpp>
 
-export module bsu.filesystem;
+export module bsu:filesystem;
 
 import std;
 

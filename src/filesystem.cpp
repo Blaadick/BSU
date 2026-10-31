@@ -11,7 +11,7 @@ module;
 #include <shobjidl.h>
 #endif
 
-module bsu.filesystem;
+module bsu;
 
 import std;
 

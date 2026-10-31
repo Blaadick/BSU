@@ -2,7 +2,7 @@ module;
 
 #include <bsu.hpp>
 
-export module bsu.secrets;
+export module bsu:secrets;
 
 import std;
 

@@ -8,7 +8,7 @@ module;
 #include <libsecret/secret.h>
 #endif
 
-module bsu.secrets;
+module bsu;
 
 import std;
 
