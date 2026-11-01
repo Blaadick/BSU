@@ -20,6 +20,29 @@ int main(int argc, char* argv[]) {
 }
 ```
 
+## Execute
+bsu::execute():
+```c++
+import std;
+import bsu;
+
+int main(int argc, char* argv[]) {
+    if(argc < 2) {
+        return 1;
+    }
+
+    auto command = argv[1];
+    auto env = std::array{std::string("GREETING=hello")};
+    auto exitCode = bsu::execute(command, env);
+    if(!exitCode) {
+        std::println(std::cerr, "{}", exitCode.error());
+        return 1;
+    }
+
+    return *exitCode;
+}
+```
+
 ## Secrets
 bsu::secrets::get():
 ```c++
