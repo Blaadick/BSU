@@ -2,6 +2,7 @@ module;
 
 #ifdef _WIN32
 #include <cstdlib>
+#include <x86intrin.h>
 #include <windows.h>
 #include <wincred.h>
 #else
