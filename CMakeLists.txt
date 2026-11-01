@@ -16,21 +16,15 @@ include(GenerateExportHeader)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-add_library(bsu SHARED)
+file(GLOB_RECURSE SOURCES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS src/*.cpp)
+file(GLOB_RECURSE MODULES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS include/*.cppm)
+
+add_library(bsu SHARED ${SOURCES})
+target_sources(bsu PUBLIC FILE_SET CXX_MODULES BASE_DIRS include FILES ${MODULES})
 target_compile_features(bsu PUBLIC cxx_std_26)
 set_target_properties(bsu PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
-)
-
-target_sources(bsu
-    PUBLIC FILE_SET CXX_MODULES BASE_DIRS include FILES
-    include/bsu.cppm
-    include/filesystem.cppm
-    include/secrets.cppm
-    PRIVATE
-    src/filesystem.cpp
-    src/secrets.cpp
 )
 
 if(NOT WIN32)
@@ -57,5 +51,5 @@ install(EXPORT BSUTargets
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/BSU
 )
 
-write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/BSUConfigVersion.cmake COMPATIBILITY SameMajorVersion)
+write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/BSUConfigVersion.cmake COMPATIBILITY SameMinorVersion)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/BSUConfigVersion.cmake DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/BSU)

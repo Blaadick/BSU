@@ -2,8 +2,8 @@ module;
 
 #ifdef __linux__
 #include <cerrno>
-#include <fcntl.h>
 #include <ctime>
+#include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #elif _WIN32
@@ -25,7 +25,7 @@ namespace {
             return std::nullopt;
         }
 
-        return pathStat.st_dev;
+        return std::make_optional(pathStat.st_dev);
     }
 
     auto mountPointOf(std::filesystem::path path, const dev_t device) -> std::filesystem::path {
